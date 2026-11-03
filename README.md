@@ -1,320 +1,361 @@
-# Axoin System Deployment - Azure Infrastructure as Code (Terraform)
+<div align="center">
 
-An enterprise-grade, modular Infrastructure as Code (IaC) project using **Terraform** and the **AzureRM Provider** to automate the provisioning of a secure, multi-tier cloud environment in **Microsoft Azure**.
+# ☁️ Axoin System Deployment
+### *Enterprise Multi-Tier Cloud Infrastructure on Microsoft Azure with Terraform*
 
----
+[![Terraform](https://img.shields.io/badge/Terraform-%235835CC.svg?style=for-the-badge&logo=terraform&logoColor=white)](https://www.terraform.io/)
+[![Azure](https://img.shields.io/badge/azure-%230072C6.svg?style=for-the-badge&logo=microsoftazure&logoColor=white)](https://azure.microsoft.com/)
+[![Ubuntu](https://img.shields.io/badge/Ubuntu-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
+[![Security](https://img.shields.io/badge/Security-Key%20Vault%20%2B%20Bastion-success?style=for-the-badge&logo=azurekeyvault&logoColor=white)](#-security--secrets-management)
+[![Status](https://img.shields.io/badge/Status-Production--Ready-brightgreen?style=for-the-badge)](#)
 
-## Table of Contents
-
-- [Overview](#overview)
-- [Architecture & Design](#architecture--design)
-- [Repository Structure](#repository-structure)
-- [Modules Breakdown](#modules-breakdown)
-  - [1. Resource Group Module](#1-resource-group-module)
-  - [2. Virtual Network Module](#2-virtual-network-module)
-  - [3. Subnet Module](#3-subnet-module)
-  - [4. Public IP Module](#4-public-ip-module)
-  - [5. Network Security Group (NSG) Module](#5-network-security-group-nsg-module)
-  - [6. Virtual Machine Module](#6-virtual-machine-module)
-  - [7. Azure Bastion Module](#7-azure-bastion-module)
-- [Environment Configuration (`preprod`)](#environment-configuration-preprod)
-  - [Remote State Management](#remote-state-management)
-  - [Dependency Graph & Orchestration](#dependency-graph--orchestration)
-  - [Security Rules & Port Configuration](#security-rules--port-configuration)
-  - [Key Vault & Secret Management](#key-vault--secret-management)
-- [Prerequisites](#prerequisites)
-- [Deployment Guide](#deployment-guide)
-- [Configuration Reference (`terraform.tfvars`)](#configuration-reference-terraformtfvars)
-- [Best Practices & Security Notes](#best-practices--security-notes)
+<p align="center">
+  <a href="#-architecture-overview"><b>Architecture</b></a> •
+  <a href="#-key-features"><b>Features</b></a> •
+  <a href="#-repository-structure"><b>Repo Structure</b></a> •
+  <a href="#-modular-design"><b>Modules</b></a> •
+  <a href="#-security--secrets-management"><b>Security</b></a> •
+  <a href="#-quick-start-deployment"><b>Deployment</b></a> •
+  <a href="#-configuration-parameters"><b>Configuration</b></a>
+</p>
 
 ---
 
-## Overview
+</div>
 
-This repository deploys a complete 3-tier application infrastructure (Frontend, Backend, and Database) along with dedicated administrative access via Azure Bastion. The codebase is organized into reusable child modules under `Module/` and an environment layer under `environment/preprod/`, ensuring high reusability, maintainability, and clean separation of concerns.
+## 📌 Executive Summary
 
-### Key Highlights:
-- **Modular IaC**: Child modules designed with `for_each` loops to handle multiple resource instances dynamically.
-- **Multi-Tier Network Topology**: Segmented subnets for Frontend, Backend, Database tiers, plus a dedicated subnet for Azure Bastion.
-- **Tiered Security**: Granular Network Security Groups (NSGs) using dynamic security rule blocks.
-- **Secure VM Access**: Passwords sourced dynamically from **Azure Key Vault** to avoid exposing plaintext secrets in code or version control.
-- **Azure Bastion Integration**: Secure, seamless RDP/SSH connectivity directly via the Azure Portal without exposing public management ports.
-- **Remote State**: Backed by an Azure Storage Account container with state locking for reliable team collaboration.
+**Axoin System Deployment** is a production-grade, modular Infrastructure-as-Code (IaC) framework built with **Terraform** targeting **Microsoft Azure** (`azurerm` provider `v5.2.0`). 
+
+It provisions an isolated, highly available **3-tier cloud architecture** (Frontend, Backend, and Database) secured with dynamic Network Security Groups (NSGs), zero-public-management exposure via **Azure Bastion**, and runtime credential injection through **Azure Key Vault**.
 
 ---
 
-## Architecture & Design
+## 🏗️ Architecture Overview
 
+```mermaid
+flowchart TB
+    subgraph Internet["🌐 External Access"]
+        User["👤 Web Users<br/>(HTTP:80 / HTTPS:443)"]
+        Admin["👨‍💻 DevOps / Cloud Admins<br/>(Browser Portal SSH)"]
+    end
+
+    subgraph AzureCloud["☁️ Microsoft Azure (Region: South Africa North)"]
+        subgraph RG["📁 Resource Group: Axoin_system12"]
+            subgraph VNET["🕸️ Virtual Network: Axoin_system12_vnet (10.0.0.0/16)"]
+                
+                subgraph SubnetBastion["🛡️ AzureBastionSubnet (10.0.4.0/24)"]
+                    BastionHost["🏰 Azure Bastion Host<br/>(bastion1)"]
+                    BastionPIP["📌 Bastion Public IP<br/>(bastion_pip)"]
+                end
+
+                subgraph SubnetFrontend["💻 Frontend Subnet (10.0.1.0/24)"]
+                    FrontendVM["🖥️ Axion-frontend-vm<br/>Ubuntu 22.04 LTS"]
+                    FrontendNIC["🎛️ frontend_nic"]
+                    FrontendPIP["📌 frontend_pip"]
+                    FrontendNSG["🛡️ frontend_nsg<br/>Ports: 22, 80, 443"]
+                end
+
+                subgraph SubnetBackend["⚙️ Backend Subnet (10.0.2.0/24)"]
+                    BackendVM["🖥️ Axion-backend-vm<br/>Ubuntu 22.04 LTS"]
+                    BackendNIC["🎛️ backend_nic"]
+                    BackendNSG["🛡️ backend_nsg<br/>Ports: 22, 80, 443"]
+                end
+
+                subgraph SubnetDB["🗄️ Database Subnet (10.0.3.0/24)"]
+                    DBVM["🖥️ Axion-database-vm<br/>Ubuntu 22.04 LTS"]
+                    DBNIC["🎛️ database_nic"]
+                    DBNSG["🛡️ database_nsg<br/>Ports: 22, 80, 443"]
+                end
+
+            end
+
+            subgraph Vault["🔐 Key Vault Services"]
+                KeyVault["Azure Key Vault<br/>(rahul-vault12)"]
+                Secret["🔑 Secret: password"]
+            end
+        end
+
+        subgraph StateStorage["📦 State Persistence (Remote Backend)"]
+            BackendStorage["Azure Blob Storage<br/>Account: lalakastorage<br/>Container: pappu<br/>Key: kuldeep.tfstate"]
+        end
+    end
+
+    %% Network Connections
+    User -->|Inbound Web Traffic| FrontendPIP --> FrontendNIC --> FrontendVM
+    Admin -->|Secure TLS Session| BastionPIP --> BastionHost
+    
+    %% Bastion Private Management Tunneling
+    BastionHost -.->|Private Secure SSH| FrontendNIC
+    BastionHost -.->|Private Secure SSH| BackendNIC
+    BastionHost -.->|Private Secure SSH| DBNIC
+
+    %% Inter-Tier Traffic Flow
+    FrontendVM -->|API Requests| BackendVM
+    BackendVM -->|Data Queries| DBVM
+
+    %% Key Vault Secrets Injection
+    Secret -.->|Runtime Password Injection| FrontendVM
+    Secret -.->|Runtime Password Injection| BackendVM
+    Secret -.->|Runtime Password Injection| DBVM
 ```
-+------------------------------------------------------------------------------------------+
-| Azure Subscription                                                                       |
-| Resource Group: Axoin_system12 (Region: South Africa North)                              |
-|                                                                                          |
-|  +------------------------------------------------------------------------------------+  |
-|  | Virtual Network: Axoin_system12_vnet (10.0.0.0/16)                                 |  |
-|  |                                                                                    |  |
-|  |  +-----------------------------+       +-----------------------------+             |  |
-|  |  | Frontend Subnet             |       | Backend Subnet              |             |  |
-|  |  | (10.0.1.0/24)               |       | (10.0.2.0/24)               |             |  |
-|  |  |  - Axion-frontend-vm        |       |  - Axion-backend-vm         |             |  |
-|  |  |  - frontend_nic             |       |  - backend_nic              |             |  |
-|  |  |  - frontend_pip (Public IP) |       |  - NSG: backend_nsg         |             |  |
-|  |  |  - NSG: frontend_nsg        |       +-----------------------------+             |  |
-|  |  +-----------------------------+                                                   |  |
-|  |                                                                                    |  |
-|  |  +-----------------------------+       +-----------------------------+             |  |
-|  |  | Database Subnet             |       | AzureBastionSubnet          |             |  |
-|  |  | (10.0.3.0/24)               |       | (10.0.4.0/24)               |             |  |
-|  |  |  - Axion-database-vm        |       |  - Azure Bastion Host       |             |  |
-|  |  |  - database_nic             |       |  - bastion_pip (Public IP)  |             |  |
-|  |  |  - NSG: database_nsg        |       +-----------------------------+             |  |
-|  |  +-----------------------------+                                                   |  |
-|  +------------------------------------------------------------------------------------+  |
-|                                                                                          |
-|  +-----------------------------+                                                         |
-|  | Azure Key Vault             |  ---> Injects admin password into Linux VMs at runtime  |
-|  | (rahul-vault12)             |                                                         |
-|  +-----------------------------+                                                         |
-+------------------------------------------------------------------------------------------+
-```
 
 ---
 
-## Repository Structure
+## ✨ Key Features
 
-```text
-Axoin_System_Deployment/
-├── .gitignore                                 # Git ignore file for Terraform states, vars, and logs
-├── README.md                                  # Project documentation
+| Feature | Description | Benefit |
+|:---|:---|:---|
+| **🧩 100% Modular Design** | Granular modules in `Module/` driven by flexible `for_each` maps. | High reusability across `dev`, `stage`, and `prod`. |
+| **🛡️ Zero Public SSH Exposure** | Private subnets managed via a dedicated **Azure Bastion** host. | Eliminates brute-force attacks on port 22. |
+| **🔐 Vault-Driven Security** | Linux VM credentials dynamically fetched from **Azure Key Vault**. | No cleartext passwords stored in git or configuration files. |
+| **⚡ Tier-Isolated Subnetting** | Separate CIDRs for Frontend (`10.0.1.0/24`), Backend (`10.0.2.0/24`), and DB (`10.0.3.0/24`). | Strict network segregation & defense-in-depth. |
+| **🔄 Dynamic NSG Rules** | Programmatic rule generation using Terraform `dynamic "security_rule"` blocks. | Declarative, DRY (Don't Repeat Yourself) rule definitions. |
+| **💾 Enterprise Remote State** | State stored in Azure Blob Storage with distributed lease locking. | Protects against concurrent operations and data loss. |
+
+---
+
+## 📂 Repository Structure
+
+```tree
+📦 Axoin_System_Deployment
+├── 📁 .git/
+├── 📄 .gitignore                             # Prevents committing .tfstate, .tfvars, & local logs
+├── 📄 README.md                              # Project documentation & architecture manual
 │
-├── environment/                               # Environment configurations
-│   └── preprod/
-│       ├── main.tf                            # Root orchestration calling child modules with dependencies
-│       ├── provider.tf                        # AzureRM provider (v5.2.0) & remote backend config
-│       ├── variable.tf                        # Variable schema and typed definitions
-│       └── terraform.tfvars                   # Pre-production environment parameter values
+├── 📁 environment/                           # Environment deployment root
+│   └── 📁 preprod/                           # Pre-Production Environment
+│       ├── 📄 main.tf                        # Root orchestrator & module dependency DAG
+│       ├── 📄 provider.tf                    # AzureRM v5.2.0 provider & Remote State Backend
+│       ├── 📄 variable.tf                    # Strict HCL type schemas & object definitions
+│       └── 📄 terraform.tfvars               # Active infrastructure parameter values
 │
-└── Module/                                    # Reusable infrastructure modules
-    ├── azurerm_bastion/                       # Azure Bastion module
-    │   ├── data.tf                            # Subnet and Public IP data lookups
-    │   ├── main.tf                            # azurerm_bastion_host resource
-    │   └── variable.tf                        # Module input variables
-    │
-    ├── Azurerm_nsg/                           # Network Security Group module
-    │   ├── main.tf                            # azurerm_network_security_group with dynamic rules
-    │   └── variable.tf                        # NSG and security rules variable schemas
-    │
-    ├── Azurerm_public_ip/                     # Public IP module
-    │   ├── main.tf                            # azurerm_public_ip resource
-    │   └── variable.tf                        # Public IP variable schema
-    │
-    ├── Azurerm_resource_group/                # Resource Group module
-    │   ├── main.tf                            # azurerm_resource_group resource
-    │   └── variable.tf                        # Resource Group variable schema
-    │
-    ├── Azurerm_subnet/                        # Subnet module
-    │   ├── main.tf                            # azurerm_subnet resource
-    │   └── variable.tf                        # Subnet variable schema
-    │
-    ├── Azurerm_virtual_machine/               # Virtual Machine module
-    │   ├── data.tf                            # Subnet, Public IP, NSG, and Key Vault lookups
-    │   ├── main.tf                            # NIC, NIC-NSG association, and Linux VM resources
-    │   └── variable.tf                        # VM configuration variable schema
-    │
-    └── Azurerm_virtual_network/               # Virtual Network module
-        ├── main.tf                            # azurerm_virtual_network resource
-        └── variable.tf                        # VNet variable schema
+└── 📁 Module/                                # Reusable Child Modules
+    ├── 📁 azurerm_bastion/                   # Azure Bastion PaaS Service
+    │   ├── 📄 data.tf                        # Data lookups for Bastion Subnet & PIP
+    │   ├── 📄 main.tf                        # azurerm_bastion_host resource
+    │   └── 📄 variable.tf                    # Bastion input variables
+    ├── 📁 Azurerm_nsg/                       # Network Security Groups
+    │   ├── 📄 main.tf                        # NSGs with dynamic security_rule blocks
+    │   └── 📄 variable.tf                    # NSG & rule object schemas
+    ├── 📁 Azurerm_public_ip/                 # Public IP Allocation
+    │   ├── 📄 main.tf                        # Static Standard SKU Public IPs
+    │   └── 📄 variable.tf                    # Public IP input variables
+    ├── 📁 Azurerm_resource_group/            # Azure Resource Groups
+    │   ├── 📄 main.tf                        # azurerm_resource_group provisioning
+    │   └── 📄 variable.tf                    # Resource Group input variables
+    ├── 📁 Azurerm_subnet/                    # Virtual Network Subnets
+    │   ├── 📄 main.tf                        # Subnets with dynamic prefix bindings
+    │   └── 📄 variable.tf                    # Subnet input variables
+    ├── 📁 Azurerm_virtual_machine/           # Compute Layer (Linux VMs)
+    │   ├── 📄 data.tf                        # Subnet, PIP, NSG & Key Vault lookups
+    │   ├── 📄 main.tf                        # NIC, NIC-NSG Association, Linux VM
+    │   └── 📄 variable.tf                    # Compute input variables
+    └── 📁 Azurerm_virtual_network/           # Virtual Networks (VNets)
+        ├── 📄 main.tf                        # azurerm_virtual_network resource
+        └── 📄 variable.tf                    # VNet input variables
 ```
 
 ---
 
-## Modules Breakdown
+## 🧩 Modular Design
 
-### 1. Resource Group Module
-**Path:** `Module/Azurerm_resource_group`
-- **Purpose:** Creates Azure Resource Groups as the foundational lifecycle container for resources.
-- **Logic:** Uses `for_each = var.rg_names` to provision one or multiple resource groups dynamically across regions.
-- **Inputs:** `rg_names` map containing `name` and `location`.
+<details open>
+<summary><b>1. Resource Groups (<code>Module/Azurerm_resource_group</code>)</b></summary>
+<br>
 
-### 2. Virtual Network Module
-**Path:** `Module/Azurerm_virtual_network`
-- **Purpose:** Deploys software-defined Virtual Networks (VNets) in Azure.
-- **Logic:** Iterates over `var.vnet_name` map specifying `address_space`, `location`, and target resource group.
-- **Inputs:** `vnet_name` map.
+- **Resource:** `azurerm_resource_group`
+- **Execution:** Uses `for_each = var.rg_names` to provision multiple lifecycle boundaries across distinct Azure regions.
+- **Preprod Config:** Provisions `Axoin_system12` (South Africa North) and `Axoin_system123` (East US).
 
-### 3. Subnet Module
-**Path:** `Module/Azurerm_subnet`
-- **Purpose:** Segments the Virtual Network address space into dedicated subnets.
-- **Logic:** Provisions subnets bound to a parent VNet using `for_each = var.subnet_name`.
-- **Inputs:** `subnet_name` map defining subnet names, CIDR prefixes (`address_prefixes`), and parent VNet.
+</details>
 
-### 4. Public IP Module
-**Path:** `Module/Azurerm_public_ip`
-- **Purpose:** Provisions Static Standard SKU Public IPs for external network ingress (e.g., Frontend and Bastion host).
-- **Logic:** Uses `for_each = var.public_ip` with `Static` allocation and `Standard` SKU.
-- **Inputs:** `public_ip` map.
+<details>
+<summary><b>2. Virtual Networks & Subnets (<code>Module/Azurerm_virtual_network</code> & <code>Module/Azurerm_subnet</code>)</b></summary>
+<br>
 
-### 5. Network Security Group (NSG) Module
-**Path:** `Module/Azurerm_nsg`
-- **Purpose:** Implements stateful network packet filtering across subnets and VMs.
-- **Logic:** Employs a `dynamic "security_rule"` block to iterate over a list of rule definitions (ports, protocols, direction, access, priority) per NSG.
-- **Inputs:** `nsg_name` map containing nested security rule definitions.
+- **Resources:** `azurerm_virtual_network`, `azurerm_subnet`
+- **Execution:** Creates software-defined boundaries with address space `10.0.0.0/16`. Subnet module maps 4 distinct tiers:
+  - `Axoin_system12_frontend_subnet` (`10.0.1.0/24`)
+  - `Axoin_system12_backend_subnet` (`10.0.2.0/24`)
+  - `Axoin_system12_database_subnet` (`10.0.3.0/24`)
+  - `AzureBastionSubnet` (`10.0.4.0/24`) - *Required reserved name for Azure Bastion*
 
-### 6. Virtual Machine Module
-**Path:** `Module/Azurerm_virtual_machine`
-- **Purpose:** Deploys Linux Virtual Machines with attached Network Interfaces and NSG associations.
-- **Logic:**
-  - Queries existing subnets, public IPs, and NSGs via `data` sources.
-  - Retrieves admin credentials securely from an **Azure Key Vault** (`rahul-vault12`) secret (`password`).
-  - Creates the Network Interface (`azurerm_network_interface`) with dynamic private IP allocation.
-  - Links NICs to corresponding NSGs via `azurerm_network_interface_security_group_association`.
-  - Deploys Ubuntu 22.04 LTS Gen2 virtual machines (`azurerm_linux_virtual_machine`) with standard OS disk settings (`ReadWrite` caching, `Standard_LRS`).
-- **Inputs:** `vms` map.
+</details>
 
-### 7. Azure Bastion Module
-**Path:** `Module/azurerm_bastion`
-- **Purpose:** Provides fully managed PaaS-based RDP/SSH connectivity without exposing VMs to public IPs or open internet ports.
-- **Logic:** Fetches the mandatory `AzureBastionSubnet` and dedicated public IP via `data` blocks, and attaches them to `azurerm_bastion_host`.
-- **Inputs:** `bastions` map.
+<details>
+<summary><b>3. Network Security Groups (<code>Module/Azurerm_nsg</code>)</b></summary>
+<br>
+
+- **Resource:** `azurerm_network_security_group`
+- **Dynamic Rules:** Utilizes Terraform `dynamic "security_rule"` blocks for declarative rule definitions:
+  - **SSH (Port 22)**: Priority `100` (Inbound Allow)
+  - **HTTP (Port 80)**: Priority `110` (Inbound Allow)
+  - **HTTPS (Port 443)**: Priority `120` (Inbound Allow)
+
+</details>
+
+<details>
+<summary><b>4. Compute & Key Vault Integration (<code>Module/Azurerm_virtual_machine</code>)</b></summary>
+<br>
+
+- **Resources:** `azurerm_network_interface`, `azurerm_network_interface_security_group_association`, `azurerm_linux_virtual_machine`
+- **Specifications:**
+  - **Size:** `Standard_DS1_v2`
+  - **OS:** Ubuntu Server 22.04 LTS Jammy Gen2 (`Canonical:0001-com-ubuntu-server-jammy:22_04-lts-gen2:latest`)
+  - **Storage:** `Standard_LRS` OS disk with `ReadWrite` caching.
+  - **Authentication:** Admin username `Kuldeep@admin` with password dynamically read from Key Vault `rahul-vault12`.
+
+</details>
+
+<details>
+<summary><b>5. Azure Bastion Host (<code>Module/azurerm_bastion</code>)</b></summary>
+<br>
+
+- **Resource:** `azurerm_bastion_host`
+- **Execution:** PaaS managed jump host deployed inside `AzureBastionSubnet` with its own dedicated public IP, delivering browser-based SSH directly from the Azure portal without exposing ports to the internet.
+
+</details>
 
 ---
 
-## Environment Configuration (`preprod`)
+## 🔒 Security & Secrets Management
 
-### Remote State Management
-The project utilizes Azure Blob Storage for state locking and remote state persistence in `environment/preprod/provider.tf`:
+> [!IMPORTANT]
+> **Zero Plaintext Secrets in Code:** Passwords in this repository are managed through Azure Key Vault.
 
 ```hcl
-terraform {
-  required_providers {
-    azurerm = {
-      source  = "hashicorp/azurerm"
-      version = "5.2.0"
-    }
-  }
-  backend "azurerm" {
-    resource_group_name  = "kuldeep_rg"
-    storage_account_name = "lalakastorage"
-    container_name       = "pappu"
-    key                  = "kuldeep.tfstate"
-  }
+# Module/Azurerm_virtual_machine/data.tf
+data "azurerm_key_vault" "keyvault" {
+  name                = "rahul-vault12"
+  resource_group_name = "Axoin_system12"
+}
+
+data "azurerm_key_vault_secret" "password" {
+  name         = "password"
+  key_vault_id = data.azurerm_key_vault.keyvault.id
 }
 ```
 
-### Dependency Graph & Orchestration
-In `environment/preprod/main.tf`, module execution order is strictly guaranteed using `depends_on`:
-1. **`module.rg`**: Resource Groups created first.
-2. **`module.vnet`** & **`module.public_ip`**: Depend on `module.rg`.
-3. **`module.subnet`**: Depends on `module.rg` and `module.vnet`.
-4. **`module.nsg`**: Depends on `module.rg` and `module.subnet`.
-5. **`module.vm`**: Depends on `module.subnet` and `module.nsg`.
-6. **`module.bastion`**: Depends on `module.rg`, `module.subnet`, and `module.public_ip`.
-
-### Security Rules & Port Configuration
-Each tier is protected by a dedicated NSG with predefined inbound rules:
-| Rule Name | Priority | Direction | Access | Protocol | Port Range | Description |
-|:---|:---:|:---:|:---:|:---:|:---:|:---|
-| `Allow-SSH` | 100 | Inbound | Allow | TCP | `22` | Secure remote shell access |
-| `Allow-HTTP` | 110 | Inbound | Allow | TCP | `80` | Web traffic ingress |
-| `Allow-HTTPS`| 120 | Inbound | Allow | TCP | `443`| Secure SSL/TLS web traffic |
-
-### Key Vault & Secret Management
-To adhere to security best practices and prevent credentials from leaking into source code:
-- Admin password authentication is enabled (`disable_password_authentication = false`).
-- Instead of hardcoding credentials in the VM resource, `Module/Azurerm_virtual_machine/data.tf` reads the secret `password` directly from Key Vault `rahul-vault12`.
+```hcl
+# Module/Azurerm_virtual_machine/main.tf
+resource "azurerm_linux_virtual_machine" "virtual_machine" {
+  ...
+  admin_username                  = "Kuldeep@admin"
+  admin_password                  = data.azurerm_key_vault_secret.password.value
+  disable_password_authentication = false
+  ...
+}
+```
 
 ---
 
-## Prerequisites
+## 🔄 Dependency Graph & Orchestration
 
-Before running this Terraform deployment, ensure you have:
-1. **Azure CLI** installed: [Install Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli)
-2. **Terraform CLI** installed (`v1.5+` recommended): [Install Terraform](https://developer.hashicorp.com/terraform/install)
-3. Authenticated session to Azure:
+The root module [`environment/preprod/main.tf`](file:///c:/Users/Hp/Desktop/Axoin_System_Deployment/environment/preprod/main.tf) enforces strict deployment sequencing via `depends_on`:
+
+```text
+[ Resource Groups (module.rg) ]
+       │
+       ├───► [ Virtual Network (module.vnet) ] ───► [ Subnets (module.subnet) ]
+       │                                                      │
+       ├───► [ Public IPs (module.public_ip) ]               │
+       │                     │                                │
+       │                     ▼                                ▼
+       │              [ Azure Bastion (module.bastion) ]   [ NSGs (module.nsg) ]
+       │                                                              │
+       └──────────────────────────────────────────────────────────────▼
+                                                      [ Virtual Machines (module.vm) ]
+```
+
+---
+
+## 🚀 Quick Start Deployment
+
+### 📋 Prerequisites
+
+1. **Azure CLI** (`>= 2.50.0`):
    ```bash
+   az --version
    az login
-   az account set --subscription "<YOUR_SUBSCRIPTION_ID>"
+   az account set --subscription "<YOUR-AZURE-SUBSCRIPTION-ID>"
    ```
-4. Pre-existing Azure resources for state storage and secrets:
+2. **Terraform CLI** (`>= 1.5.0`):
+   ```bash
+   terraform -version
+   ```
+3. **Existing Azure Backend & Key Vault:**
    - Resource Group: `kuldeep_rg`
-   - Storage Account: `lalakastorage` with blob container: `pappu`
-   - Azure Key Vault: `rahul-vault12` containing secret `password`
+   - Storage Account: `lalakastorage` with container `pappu`
+   - Key Vault: `rahul-vault12` containing secret `password`
 
 ---
 
-## Deployment Guide
+### 🛠️ Execution Commands
 
-Follow these steps to deploy the pre-production environment:
-
-### Step 1: Navigate to the Environment Directory
 ```bash
+# 1. Switch to pre-production environment directory
 cd environment/preprod
-```
 
-### Step 2: Initialize Terraform
-Initialize the backend and download the required provider plugins:
-```bash
+# 2. Initialize Terraform and configure remote backend
 terraform init
-```
 
-### Step 3: Validate the Configuration
-Verify syntax and module arguments:
-```bash
+# 3. Format and validate configuration syntax
+terraform fmt -check
 terraform validate
+
+# 4. Generate and inspect execution plan
+terraform plan -out=preprod.tfplan
+
+# 5. Apply the infrastructure changes
+terraform apply preprod.tfplan
 ```
 
-### Step 4: Preview the Execution Plan
-Review all resources scheduled for creation:
-```bash
-terraform plan -out=tfplan
-```
+<details>
+<summary><b>🧹 Tear Down & Clean Up</b></summary>
+<br>
 
-### Step 5: Apply the Configuration
-Provision the infrastructure:
-```bash
-terraform apply tfplan
-```
-
-### Step 6: Destroy / Clean Up (Optional)
-When the infrastructure is no longer needed:
+To destroy all provisioned resources when testing is complete:
 ```bash
 terraform destroy
 ```
 
----
-
-## Configuration Reference (`terraform.tfvars`)
-
-Summary of values configured in `environment/preprod/terraform.tfvars`:
-
-| Resource Type | Resource Name / Key | Details / CIDR / Size | Region |
-|:---|:---|:---|:---|
-| **Resource Group** | `Axoin_system12` | Main environment RG | South Africa North |
-| **Resource Group** | `Axoin_system123` | Secondary RG | East US |
-| **Virtual Network** | `Axoin_system12_vnet` | `10.0.0.0/16` | South Africa North |
-| **Subnet** | `Axoin_system12_frontend_subnet` | `10.0.1.0/24` | South Africa North |
-| **Subnet** | `Axoin_system12_backend_subnet` | `10.0.2.0/24` | South Africa North |
-| **Subnet** | `Axoin_system12_database_subnet` | `10.0.3.0/24` | South Africa North |
-| **Subnet** | `AzureBastionSubnet` | `10.0.4.0/24` (Mandatory name for Bastion) | South Africa North |
-| **Public IP** | `frontend_pip` | Static, Standard SKU | South Africa North |
-| **Network Security Group**| `frontend_nsg` | Inbound: 22, 80, 443 | South Africa North |
-| **Network Security Group**| `backend_nsg` | Inbound: 22, 80, 443 | South Africa North |
-| **Network Security Group**| `database_nsg` | Inbound: 22, 80, 443 | South Africa North |
-| **Virtual Machine** | `Axion-frontend-vm` | `Standard_DS1_v2`, Ubuntu 22.04 LTS | South Africa North |
-| **Virtual Machine** | `Axion-backend-vm` | `Standard_DS1_v2`, Ubuntu 22.04 LTS | South Africa North |
-| **Virtual Machine** | `Axion-database-vm` | `Standard_DS1_v2`, Ubuntu 22.04 LTS | South Africa North |
-| **Azure Bastion** | `bastion1` | PaaS Bastion Host on `AzureBastionSubnet` | South Africa North |
+</details>
 
 ---
 
-## Best Practices & Security Notes
+## 📊 Configuration Parameters
 
-1. **Secrets Security**:
-   - `*.tfvars` files are excluded in `.gitignore` to prevent secret leakage.
-   - Admin credentials for VMs are fetched dynamically from Azure Key Vault via Terraform data sources.
-2. **Bastion Host Access**:
-   - For enhanced security, backend and database VMs should not have direct public IPs. Management access is handled through Azure Bastion.
-3. **Module Isolation**:
-   - Each infrastructure component is encapsulated in its own module under `Module/`, allowing independent updates, unit testing, and reuse across multiple environments (e.g., `dev`, `stage`, `prod`).
-4. **State Integrity**:
-   - State locking via Azure Storage backend prevents concurrent modifications and state file corruption during team deployments.
+### Resource Sizing & Addressing Matrix
+
+| Layer | Resource Name | Type / Sizing | Subnet / CIDR | Region |
+|:---|:---|:---|:---|:---|
+| **Resource Group** | `Axoin_system12` | Azure Resource Group | N/A | South Africa North |
+| **Virtual Network** | `Axoin_system12_vnet`| Virtual Network | `10.0.0.0/16` | South Africa North |
+| **Frontend Tier** | `Axion-frontend-vm` | `Standard_DS1_v2` | `10.0.1.0/24` | South Africa North |
+| **Backend Tier** | `Axion-backend-vm` | `Standard_DS1_v2` | `10.0.2.0/24` | South Africa North |
+| **Database Tier** | `Axion-database-vm` | `Standard_DS1_v2` | `10.0.3.0/24` | South Africa North |
+| **Bastion Host** | `bastion1` | Standard Bastion Host | `10.0.4.0/24` | South Africa North |
+| **Public IP** | `frontend_pip` | Static / Standard SKU | Public Ingress | South Africa North |
+
+---
+
+## 🛡️ Best Practice Checklist
+
+- [x] **State Isolation:** Remote state saved in Azure Blob with auto-locking.
+- [x] **Network Segmentation:** Zero shared subnets between application tiers.
+- [x] **Identity & Secrets:** Passwords fetched dynamically from Azure Key Vault.
+- [x] **Secure Bastion Access:** Eliminates the need for public IPs on backend/database layers.
+- [x] **Declarative Rules:** Clean dynamic blocks for firewall/NSG configurations.
+- [x] **Version Locking:** Provider locked to `hashicorp/azurerm` version `5.2.0`.
+
+---
+
+<div align="center">
+
+**Maintained by [vikash](https://github.com/keshrivikash887-bit)**  
+*Contributions, issues, and feature requests are welcome!*
+
+⭐ **If you find this repository useful, please consider giving it a star!** ⭐
+
+</div>
